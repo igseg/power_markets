@@ -1,0 +1,12 @@
+us_price_data.csv
+.gitignore.swo
+.gitignore.swp
+Data/
+Figures/
+Isabel___24 abril 2023___datos Bloomberg.xlsx
+__pycache__/
+data_christina/
+docs/
+electricity data_acc.xlsx
+eu_price_data.csv
+other/
