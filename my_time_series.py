@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import scipy.stats as stats
+import scipy
 
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 
@@ -12,7 +13,7 @@ from typing import Callable, Union
 from pandas.plotting import autocorrelation_plot
 from tools_qfb import compare_histogram_pdf, qqplot
 from scipy.stats import norm, probplot, t
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, minimize
 
 
 #%%
@@ -624,9 +625,108 @@ def f_test(x, y):
     p = 1-scipy.stats.f.cdf(f, dfn, dfd) #find p-value of F test statistic
     return f, p
 
+def ls(weights, R):
+    
+    err = R[0,:]
+    for i, weight in enumerate(weights):
+        err = err - weight * R[i+1,:]
+    return np.sum(err**2)
+
+def synthetic_control_estimator(train_sample, test_sample,
+                                loss_function = None,
+                                constraints = ({'type': 'eq', 'fun' : lambda x: np.sum(x) - 1}),
+                                returns = True,
+                                test_mean = True,
+                               ):
+    """
+    Estimating weights for the synthetic control
+    
+    Args:
+    
+        train_sample:  observations in the training period, no nans, one row per time-serie and
+        one column per time step
+        test_sample:   same as train but test
+        loss_function: the loss function, the inputs are the weights
+        constraints:   are the constraints
+        returns:       indicate if the data are returns or not, if True it will plot levels
+        test_mean:     True to show mean variation tests
+        
+    Returns:
+        weights: the estimated weights for the replica portfolio
+        control: Values of the synthetic control over the whole period (train and test)
+    """
+    
+    if loss_function == None:
+        loss_function = lambda weights: ls(weights, train_sample)
+    
+    parameters_seed = np.zeros(train_sample.shape[0]-1)
+    parameters_seed[0] = 1
+    
+    info_optimization = minimize(
+    loss_function, 
+    parameters_seed,
+    method='SLSQP',
+    constraints = constraints
+    )
+    
+    weights = info_optimization.x
+    
+    sample  = np.hstack((train_sample,test_sample))
+    
+    control = np.matmul(weights, sample[1:,:])
+        
+    if test_mean:
+        
+        idx = train_sample.shape[1]
+        
+        print('\n Train period:\n ')
+        
+        print(f' Mean value for the Real data: {train_sample[0,:].mean()}')
+        print(f' Mean value for the Control data: {control[:idx].mean()}')
+        print(f' p-value of the differences test: {stats.ttest_ind(train_sample[0,:], control[:idx])[1]}')
+
+        print('=' * 30)
+        
+        print('\n Test period: \n')
+
+        print(f' Mean value for the Real data: {test_sample[0,:].mean()}')
+        print(f' Mean value for the Control data: {control[idx:].sum()}')
+        print(f' p-value of the differences test: {stats.ttest_ind(test_sample[0,:], control[idx:])[1]}')
+
+        print('=' * 30)
+        
+        print('\n Temporal differences: \n ')
+        
+        print(f' p-value of the differences test for the Real data: {stats.ttest_ind(train_sample[0,:], test_sample[0,:])[1]}')
+        print(f' p-value of the differences test for the synthetic data: {stats.ttest_ind(control[:idx], control[idx:])[1]}')
+
+    colors = ['#90353b', '#1d4971', 'green']
+    
+    if returns:
+        plt.plot(sample[0,:].cumsum() * 100, label = 'Real data', color = colors[0])
+        plt.plot(control.cumsum() * 100, label = 'Synthetic data', color = colors[1])
+        plt.axvline(x = idx - 1, color = 'r', label = 'Threshold')
+        plt.legend()
+        plt.tight_layout()
+        plt.ylabel('Comulative returns (%)')
+        plt.show()
+    
+    else:
+        plt.plot(sample[0,:].cumsum() * 100, label = 'Real data', color = colors[0])
+        plt.plot(control.cumsum() * 100, label = 'Synthetic data', color = colors[1])
+        plt.axvline(x = idx - 1, color = 'r', label = 'Threshold')
+        plt.legend()
+        plt.tight_layout()
+        plt.ylabel('Comulative returns (%)')
+        plt.show()
+    
+    return weights, control
+
 # Run examples and test results
 
 
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
+
+    
